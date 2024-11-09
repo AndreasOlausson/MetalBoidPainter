@@ -142,6 +142,7 @@ struct BoidsConfig {
     var numberOfPredators = 4
     var speedFactor: CGFloat = 1.2
     var doPaint: Bool = true
+    var brushSet: BrushName = .thinOpacLines
     var maxHistoricPositions = 10
     
     var maxSpeed: CGFloat
@@ -268,6 +269,7 @@ struct BoidsConfig {
         self.showPredatorInnerRing = true
         self.showOnlyAlphaBoid = true
         self.showOnlyAlphaPredator = true
+        
         self.showBoidView = true
         self.showArtView = true
         self.showImageView = true

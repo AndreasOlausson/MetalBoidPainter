@@ -16,8 +16,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     let maxLayerCount = 50 // You can adjust this based on your needs
     var paintedCurvesCount: Int = 0
     
-    let brushManager = BrushManager()
-    
+    var brushManager: BrushManager?
     
     var backgroundView = UIView()
     var sourceImageView = UIImageView()
@@ -49,6 +48,9 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     override func viewDidLoad() {
         super.viewDidLoad()
         
+        let config = BoidsConfig() // Ensure you have your configuration set up
+        brushManager = BrushManager(config: config)
+        
         // Lägg till vyerna till huvudvyn
         view.addSubview(backgroundView)
         view.addSubview(sourceImageView)
@@ -62,8 +64,8 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         }
         
         // Konfigurera bakgrundsfärger för att lätt kunna se vyerna
-        backgroundView.backgroundColor = .gray
-        sourceImageView.backgroundColor = .blue
+        backgroundView.backgroundColor = .black
+        sourceImageView.backgroundColor = .clear
         artView.backgroundColor = .clear
         boidsView.backgroundColor = .clear
         settingsView.backgroundColor = UIColor.lightGray.withAlphaComponent(0.8) // Solid bakgrund
@@ -85,7 +87,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         setupSettingsView()
         
         // debug
-        tmpDebug(hideSettings: true, hideBackground: true, hideSourceImage: false, hideArt: true, hideBoids: false)
+        tmpDebug(hideSettings: true, hideBackground: false, hideSourceImage: false, hideArt: true, hideBoids: false)
     }
     
     override func viewDidLayoutSubviews() {
@@ -374,7 +376,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             print("Failed to capture artView as image.")
         }
     }
-
+    
     // Capture artView as an image
     func captureArtViewAsImage() -> UIImage? {
         // Ensure the view has a valid size
@@ -387,7 +389,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         
         return image
     }
-
+    
     // Save the captured image to the photo library
     func saveImageToPhotoLibrary(_ image: UIImage) {
         // Ask for permission and save the image to the photo library
@@ -437,7 +439,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         simulationTimer?.invalidate()
         simulationTimer = nil
         isSimulationRunning = false
-
+        
         // 2. Clear all layers and uploaded images
         artView.image = nil
         sourceImageView.image = nil
@@ -474,6 +476,64 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     
     // Huvudfunktion som kör simuleringen
     func runSimulation() {
+        // Ensure boidSimulation exists
+        guard let boidSimulation = boidSimulation else {
+            print("BoidSimulation saknas.")
+            return
+        }
+        
+        // Check if there is an uploaded image and set doPaint accordingly
+        let sourceImage = sourceImageView.image
+        boidSimulation.config.doPaint = (sourceImage != nil)
+        
+        // Create BoidFlocking and update boids and predators
+        let boidFlocking = BoidFlocking(
+            boids: boidSimulation.boids,
+            predators: boidSimulation.predators,
+            screenWidth: boidsView.bounds.width,
+            screenHeight: boidsView.bounds.height,
+            config: boidSimulation.config
+        )
+        
+        boidFlocking.updateAllBoids()
+        boidFlocking.updateAllPredators()
+        
+        // Update visual representations for boids
+        for (index, boid) in boidSimulation.boids.enumerated() {
+            if let boidNode = boidsView.layer.sublayers?[index] as? BoidNode {
+                // Update boid position
+                boidNode.position = CGPoint(x: boid.position.x, y: boid.position.y)
+                
+                // Perform color processing and draw tail only if doPaint is true and sourceImage is not nil
+                if boidSimulation.config.doPaint, let sourceImage = sourceImage {
+                    let positionColor = getPixelColor(at: boidNode.position, in: sourceImage) ?? .clear
+                    boidNode.addHistoricPosition(boidNode.position, color: positionColor, maxHistoricPositions: boidSimulation.config.maxHistoricPositions)
+                    
+                    if boid.historicPositions.count > 4 {
+                        boid.historicPositions.removeFirst()
+                    }
+                    
+                    drawBoidTail(for: boid, on: artView)
+                }
+                
+                // Calculate rotation based on velocity
+                let angle = atan2(boid.velocity.y, boid.velocity.x) - CGFloat.pi / 2
+                boidNode.setAffineTransform(CGAffineTransform(rotationAngle: angle))
+            }
+        }
+        
+        // Update predators similarly
+        let predatorStartIndex = boidSimulation.boids.count
+        for (index, predator) in boidSimulation.predators.enumerated() {
+            if let predatorNode = boidsView.layer.sublayers?[predatorStartIndex + index] as? CAShapeLayer {
+                predatorNode.position = CGPoint(x: predator.position.x, y: predator.position.y)
+                
+                let angle = atan2(predator.velocity.y, predator.velocity.x) - CGFloat.pi / 2
+                predatorNode.setAffineTransform(CGAffineTransform(rotationAngle: angle))
+            }
+        }
+    }
+    func runSimulationX() {
         // Säkerställ att boidSimulation finns
         guard let boidSimulation = boidSimulation else {
             print("BoidSimulation saknas.")
@@ -545,6 +605,23 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         imageUploadLabel.textColor = .black
         imageUploadLabel.backgroundColor = .clear // Lägg till en bakgrundsfärg så att den blir synlig
         imageUploadLabel.textAlignment = .left
+        
+        
+        
+        // Add "Background color" label
+        let backgroundColorLabel = createLabel(withText: "Background color")
+        backgroundColorLabel.textColor = .black
+        backgroundColorLabel.textAlignment = .left
+        
+        // Add color picker (for iOS 14 and later)
+        let colorPicker = UIColorWell()
+        colorPicker.title = "Pick a Color"
+        colorPicker.supportsAlpha = false
+        colorPicker.translatesAutoresizingMaskIntoConstraints = false
+        colorPicker.addTarget(self, action: #selector(colorPickerChanged(_:)), for: .valueChanged)
+        
+        
+        
         
         
         let browseButton = createButton(withTitle: "Browse")
@@ -642,6 +719,8 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         
         // Lägg till alla element till settingsView
         settingsView.addSubview(imageUploadLabel)
+        settingsView.addSubview(backgroundColorLabel)
+        settingsView.addSubview(colorPicker)
         settingsView.addSubview(browseButton)
         settingsView.addSubview(layerVisibilityLabel)
         settingsView.addSubview(boidsLabel)
@@ -687,31 +766,39 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             imageUploadLabel.heightAnchor.constraint(equalToConstant: 30), // Se till att den har en höjd
             imageUploadLabel.widthAnchor.constraint(equalToConstant: 150), // Se till att den har en bredd
             
+            backgroundColorLabel.topAnchor.constraint(equalTo: imageUploadLabel.bottomAnchor, constant: 10),
+             backgroundColorLabel.leadingAnchor.constraint(equalTo: settingsView.leadingAnchor, constant: padding),
+             backgroundColorLabel.heightAnchor.constraint(equalToConstant: 30),
+             backgroundColorLabel.widthAnchor.constraint(equalToConstant: 150),
+             
+             colorPicker.centerYAnchor.constraint(equalTo: backgroundColorLabel.centerYAnchor),
+             colorPicker.leadingAnchor.constraint(equalTo: backgroundColorLabel.trailingAnchor, constant: 10),
+       
             
             browseButton.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding),
             browseButton.trailingAnchor.constraint(equalTo: settingsView.trailingAnchor, constant: -padding),
             browseButton.heightAnchor.constraint(equalToConstant: 30), // Se till att den har en höjd
             browseButton.widthAnchor.constraint(equalToConstant: 150),
             
-            layerVisibilityLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 2),
+            layerVisibilityLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 4),
             layerVisibilityLabel.leadingAnchor.constraint(equalTo: settingsView.leadingAnchor, constant: padding),
             layerVisibilityLabel.heightAnchor.constraint(equalToConstant: 30), // Se till att den har en höjd
             layerVisibilityLabel.widthAnchor.constraint(equalToConstant: 150), // Se till att den har en bredd
             
             
-            boidsLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 3),
+            boidsLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 5),
             boidsLabel.leadingAnchor.constraint(equalTo: settingsView.leadingAnchor, constant: padding),
             boidsLabel.heightAnchor.constraint(equalToConstant: 30), // Höjd på labeln
             boidsLabel.widthAnchor.constraint(equalToConstant: 80), // Bredd på labeln
             
             // artLabel: Centreras horisontellt, under boidsLabel
-            artLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 3), // Under boidsLabel
+            artLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 5), // Under boidsLabel
             artLabel.centerXAnchor.constraint(equalTo: settingsView.centerXAnchor), // Centreras horisontellt
             artLabel.heightAnchor.constraint(equalToConstant: 30), // Höjd på labeln
             artLabel.widthAnchor.constraint(equalToConstant: 40), // Bredd på labeln
             
             // imageLabel: Till höger, under artLabel
-            imageLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 3), // Under artLabel
+            imageLabel.topAnchor.constraint(equalTo: settingsView.topAnchor, constant: verticalPadding * 5), // Under artLabel
             imageLabel.trailingAnchor.constraint(equalTo: settingsView.trailingAnchor, constant: -padding), // Högerjusterad
             imageLabel.heightAnchor.constraint(equalToConstant: 30), // Höjd på labeln
             imageLabel.widthAnchor.constraint(equalToConstant: 80), // Bredd på labeln
@@ -820,7 +907,11 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             alphaPredatorLabel.widthAnchor.constraint(equalToConstant: 130)
         ])
     }
-    
+    // Add action for color picker
+    @objc func colorPickerChanged(_ sender: UIColorWell) {
+        guard let selectedColor = sender.selectedColor else { return }
+        setImageCanvasBackgroundColor(to: selectedColor)
+    }
     // Funktion för att skapa labels
     func createLabel(withText text: String) -> UILabel {
         let label = UILabel()
@@ -948,7 +1039,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             if flippedImage === srgbImage {
                 print("flipImageVertically misslyckades, använder sRGB-bilden.")
             }
-
+            
             // Step 3: Resize and crop the image to fit in the safe area while preserving aspect ratio
             let targetSize = view.safeAreaLayoutGuide.layoutFrame.size
             if let resizedImage = resizeAndCropImage(flippedImage, toFitIn: targetSize) {
@@ -959,7 +1050,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             if let avgColor = getAverageColor(of: image) {
                 setImageCanvasBackgroundColor(to: avgColor)
             }
-
+            
         }
         dismiss(animated: true, completion: nil)
     }
@@ -971,13 +1062,13 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             if srgbImage === image {
                 print("convertToSRGB misslyckades, använder originalbilden.")
             }
-
+            
             // Flippa bilden vertikalt
             let flippedImage = flipImageVertically(srgbImage) ?? srgbImage
             if flippedImage === srgbImage {
                 print("flipImageVertically misslyckades, använder sRGB-bilden.")
             }
-
+            
             // Visa den i sourceImageView
             sourceImageView.image = flippedImage
         }
@@ -987,7 +1078,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         // Calculate the aspect ratios
         let imageAspectRatio = image.size.width / image.size.height
         let targetAspectRatio = targetSize.width / targetSize.height
-
+        
         // Determine the scaling factor that preserves the aspect ratio
         var scaleFactor: CGFloat
         if imageAspectRatio > targetAspectRatio {
@@ -997,35 +1088,35 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             // Image is taller than target area, scale by width
             scaleFactor = targetSize.width / image.size.width
         }
-
+        
         // Calculate the new size after scaling
         let scaledImageSize = CGSize(width: image.size.width * scaleFactor, height: image.size.height * scaleFactor)
-
+        
         // Create a new image context with target size
         UIGraphicsBeginImageContextWithOptions(targetSize, false, 0.0)
-
+        
         // Calculate the position to center the image
         let xOffset = (targetSize.width - scaledImageSize.width) / 2
         let yOffset = (targetSize.height - scaledImageSize.height) / 2
-
+        
         // Draw the scaled image centered in the target area
         image.draw(in: CGRect(x: xOffset, y: yOffset, width: scaledImageSize.width, height: scaledImageSize.height))
-
+        
         // Get the resulting image
         let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
-
+        
         return resizedImage
     }
     func getPixelColor(at point: CGPoint, in image: UIImage) -> UIColor? {
         guard let cgImage = image.cgImage else {
             return nil
         }
-
+        
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let pixelData = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
         defer { pixelData.deallocate() }
-
+        
         let context = CGContext(
             data: pixelData,
             width: 1,
@@ -1035,36 +1126,36 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
-
+        
         // Calculate scaled coordinates
         let xScale = sourceImageView.bounds.width / image.size.width
         let yScale = sourceImageView.bounds.height / image.size.height
         let scaledX = Int(point.x / xScale)
         let scaledY = Int(point.y / yScale)
-
+        
         // Invert y-coordinate to match image coordinate system
         let adjustedY = image.size.height - CGFloat(scaledY)
-
+        
         context?.translateBy(x: -CGFloat(scaledX), y: -adjustedY)
         context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height))
-
+        
         let r = CGFloat(pixelData[0]) / 255.0
         let g = CGFloat(pixelData[1]) / 255.0
         let b = CGFloat(pixelData[2]) / 255.0
         let a = CGFloat(pixelData[3]) / 255.0
-
+        
         return UIColor(red: r, green: g, blue: b, alpha: a)
     }
     func getPixelColor_old(at point: CGPoint, in image: UIImage) -> UIColor? {
         guard let cgImage = image.cgImage else {
             return nil
         }
-
+        
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-
+        
         let pixelData = UnsafeMutablePointer<UInt8>.allocate(capacity: 4)
         defer { pixelData.deallocate() }
-
+        
         let context = CGContext(
             data: pixelData,
             width: 1,
@@ -1074,23 +1165,23 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
-
+        
         let imageSize = image.size
-
+        
         // Anpassa för spegelvänd bild: invert y-koordinaten
         let flippedY = Int(imageSize.height - point.y)
-
+        
         let x = Int(point.x)
         let y = flippedY
-
+        
         context?.translateBy(x: -CGFloat(x), y: -CGFloat(y))
         context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height))
-
+        
         let r = CGFloat(pixelData[0]) / 255.0
         let g = CGFloat(pixelData[1]) / 255.0
         let b = CGFloat(pixelData[2]) / 255.0
         let a = CGFloat(pixelData[3]) / 255.0
-
+        
         return UIColor(red: r, green: g, blue: b, alpha: a)
     }
     
@@ -1136,40 +1227,40 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
     }
     
     /*func drawBoidTail(for boid: BoidNode, on canvas: UIView) {
-        guard boid.historicPositions.count >= 4 else { return }
-
-        // Get the last 4 positions
-        let latestPositions = Array(boid.historicPositions.suffix(4))
-        
-        // Extract positions and colors
-        let points = latestPositions.map { $0.position }
-        let colors = latestPositions.map { $0.color }
-        
-        // Calculate the average color
-        let avgColor = averageColor(from: colors)
-        
-        // Create a bezier path
-        let bezierPath = UIBezierPath()
-        bezierPath.move(to: points[0])
-        bezierPath.addCurve(to: points[3], controlPoint1: points[1], controlPoint2: points[2])
-
-        // Draw the curve on the artView
-        let shapeLayer = CAShapeLayer()
-        shapeLayer.path = bezierPath.cgPath
-        shapeLayer.strokeColor = avgColor.cgColor
-        shapeLayer.lineWidth = 2.0
-        shapeLayer.fillColor = nil
-
-        canvas.layer.addSublayer(shapeLayer)
-    }*/
-
-
-
+     guard boid.historicPositions.count >= 4 else { return }
+     
+     // Get the last 4 positions
+     let latestPositions = Array(boid.historicPositions.suffix(4))
+     
+     // Extract positions and colors
+     let points = latestPositions.map { $0.position }
+     let colors = latestPositions.map { $0.color }
+     
+     // Calculate the average color
+     let avgColor = averageColor(from: colors)
+     
+     // Create a bezier path
+     let bezierPath = UIBezierPath()
+     bezierPath.move(to: points[0])
+     bezierPath.addCurve(to: points[3], controlPoint1: points[1], controlPoint2: points[2])
+     
+     // Draw the curve on the artView
+     let shapeLayer = CAShapeLayer()
+     shapeLayer.path = bezierPath.cgPath
+     shapeLayer.strokeColor = avgColor.cgColor
+     shapeLayer.lineWidth = 2.0
+     shapeLayer.fillColor = nil
+     
+     canvas.layer.addSublayer(shapeLayer)
+     }*/
+    
+    
+    
     func drawBoidTail(for boid: BoidNode, on canvas: UIImageView) {
         paintedCurvesCount += 1
         guard boid.historicPositions.count >= 4 else { return }
         
-        let brush = brushManager.getBrush(for: Float(paintedCurvesCount))
+        let brush = brushManager!.getBrush(for: Float(paintedCurvesCount))
         
         // Get the last 4 positions
         let latestPositions = Array(boid.historicPositions.suffix(4))
@@ -1197,7 +1288,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         // Add the new layer
         canvas.layer.addSublayer(shapeLayer)
         layerCount += 1
-
+        
         // If the layer count exceeds the threshold, merge them into one image
         if layerCount >= maxLayerCount {
             mergeLayers(on: canvas)
@@ -1240,20 +1331,20 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
-
+        
         for color in colors {
             var r: CGFloat = 0
             var g: CGFloat = 0
             var b: CGFloat = 0
             var a: CGFloat = 0
             color.getRed(&r, green: &g, blue: &b, alpha: &a)
-
+            
             red += r
             green += g
             blue += b
             alpha += a
         }
-
+        
         let count = CGFloat(colors.count)
         return UIColor(red: red / count, green: green / count, blue: blue / count, alpha: alpha / count)
     }
@@ -1268,7 +1359,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         }
     }
     func setImageCanvasBackgroundColor(to color: UIColor) {
-        //artView.backgroundColor = color
+        backgroundView.backgroundColor = color
     }
     func getAverageColor(of image: UIImage) -> UIColor? {
         guard let cgImage = image.cgImage else { return nil }
