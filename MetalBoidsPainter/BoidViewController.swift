@@ -2,7 +2,7 @@ import UIKit
 import MetalKit
 import Photos
 
-class GameViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+class BoidViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     
     // "global" variables
     var isSimulationRunning = false // Status för simuleringen
@@ -382,8 +382,16 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         // Ensure the view has a valid size
         let renderer = UIGraphicsImageRenderer(size: artView.bounds.size)
         
+        // Get the background color from backgroundView
+        let backgroundColor = backgroundView.backgroundColor ?? .clear // Default to clear if nil
+        
         // Capture the view as an image
         let image = renderer.image { context in
+            // Fill the entire context with the background color
+            context.cgContext.setFillColor(backgroundColor.cgColor)
+            context.cgContext.fill(CGRect(origin: .zero, size: artView.bounds.size))
+            
+            // Draw artView on top of the background
             artView.drawHierarchy(in: artView.bounds, afterScreenUpdates: true)
         }
         

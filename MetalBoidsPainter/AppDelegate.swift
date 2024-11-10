@@ -23,7 +23,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // Växla till main storyboard efter 5 sekunder
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            let mainVC = UIStoryboard(name: "Main", bundle: nil).instantiateInitialViewController()
+            let mainVC = UIStoryboard(name: "Boid", bundle: nil).instantiateInitialViewController()
             self.window?.rootViewController = mainVC
         }
 
