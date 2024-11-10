@@ -1352,7 +1352,7 @@ class GameViewController: UIViewController, UIImagePickerControllerDelegate, UIN
         // Removes all sublayers from the artView
         print("clearArtView")
         if let sublayers = artView.layer.sublayers {
-            print(artView.layer.sublayers?.count)
+            print(artView.layer.sublayers?.count ?? 0)
             for layer in sublayers {
                 layer.removeFromSuperlayer()
             }
